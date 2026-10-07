@@ -1,3 +1,4 @@
+import os
 import time
 import random
 import sqlite3
@@ -6,8 +7,8 @@ import requests
 # ============================================================
 # ====================== НАСТРОЙКИ ===========================
 # ============================================================
-BOT_TOKEN = "8888267318:AAEDr28Hdo4t56ltDD4OHqqfzm-Ma6JbnRk"
-ADMIN_ID = 8888267318
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 
 REF_REWARD = 100
 START_BONUS = 500
@@ -15,9 +16,9 @@ MIN_WITHDRAW = 1000
 MIN_REFS_FOR_WITHDRAW = 10
 
 DEFAULT_CHANNELS = [
-    "@GiftTelegramstars1",
+    "@GiftStarsTelegrams",
     "@GifterStarsTg",
-    "https://t.me/GiftStarsTelegrams",
+    "@GiftTelegramstars1",
 ]
 
 HELP_TEXT = "Связь с админом: @SpamBot"
@@ -62,7 +63,7 @@ def init_db():
         for ch in DEFAULT_CHANNELS:
             chat = ch if ch.startswith("@") else "@" + ch
             cur.execute("INSERT OR IGNORE INTO channels (chat_id) VALUES (?)", (chat,))
-    conn.commit()
+        conn.commit()
     conn.close()
 
 def get_user(user_id):
@@ -76,19 +77,23 @@ def get_user(user_id):
 def add_user(user_id, username, first_name, ref_id=None):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("""INSERT OR IGNORE INTO users (user_id, username, first_name, ref_id, b>
-                   VALUES (?, ?, ?, ?, ?)""", (user_id, username, first_name, ref_id, ST>
+    cur.execute(
+        "INSERT OR IGNORE INTO users (user_id, username, first_name, ref_id, balance) VALUES (?, ?, ?, ?, ?)",
+        (user_id, username, first_name, ref_id, START_BONUS)
+    )
     if ref_id:
-        cur.execute("UPDATE users SET balance = balance + ?, ref_count = ref_count + 1 W>
-                    (REF_REWARD, ref_id))
+        sql = "UPDATE users SET balance = balance + ?, ref_count = ref_count + 1 WHERE user_id = ?"
+        cur.execute(sql, (REF_REWARD, ref_id))
     conn.commit()
     conn.close()
+
 def update_user(user_id, **kwargs):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     fields = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values()) + [user_id]
-    cur.execute(f"UPDATE users SET {fields} WHERE user_id = ?", values)
+    sql = f"UPDATE users SET {fields} WHERE user_id = ?"
+    cur.execute(sql, values)
     conn.commit()
     conn.close()
 
@@ -152,17 +157,20 @@ def api(method, **params):
 
 def send(chat_id, text, reply_markup=None):
     p = {"chat_id": chat_id, "text": text}
-    if reply_markup: p["reply_markup"] = reply_markup
+    if reply_markup:
+        p["reply_markup"] = reply_markup
     return api("sendMessage", **p)
 
 def send_photo(chat_id, photo_url, caption, reply_markup=None):
     p = {"chat_id": chat_id, "photo": photo_url, "caption": caption}
-    if reply_markup: p["reply_markup"] = reply_markup
+    if reply_markup:
+        p["reply_markup"] = reply_markup
     return api("sendPhoto", **p)
 
 def edit(chat_id, message_id, text, reply_markup=None):
     p = {"chat_id": chat_id, "message_id": message_id, "text": text}
-    if reply_markup: p["reply_markup"] = reply_markup
+    if reply_markup:
+        p["reply_markup"] = reply_markup
     return api("editMessageText", **p)
 
 def answer_cb(cb_id, text=None, alert=False):
@@ -193,7 +201,7 @@ def check_all_subs(user_id):
                     not_subbed.append(chat)
             else:
                 not_subbed.append(chat)
-        except:
+        except Exception:
             not_subbed.append(chat)
     return (len(not_subbed) == 0, not_subbed)
 
@@ -205,7 +213,7 @@ def require_sub(user_id, chat_id, message_id=None):
 
     update_user(user_id, subscribed=0)
     text = ("⚠️ Ты не подписан на каналы!\n\n"
-            "Чтобы пользоваться ботом, подпишись на все каналы ниже и нажми «Проверить п>
+            "Чтобы пользоваться ботом, подпишись на все каналы ниже и нажми «Проверить подписку».\n\n"
             "Не подписан на:\n" + "\n".join(f"• {c}" for c in not_subbed))
     if message_id:
         edit(chat_id, message_id, text, reply_markup=sub_kb())
@@ -239,7 +247,7 @@ def captcha_kb():
     ])
 
 def captcha_kb2():
-   return kb([
+    return kb([
         [{"text": "🟦 квадрат", "callback_data": "cap_square"}],
         [{"text": "🔷 ромб", "callback_data": "cap_rhomb"}],
         [{"text": "⭐ звезда", "callback_data": "cap_star"}],
@@ -308,7 +316,7 @@ def handle_start(msg):
     if len(args) > 1 and args[1].startswith("ref_"):
         try:
             ref_id = int(args[1].split("_")[1])
-        except:
+        except Exception:
             pass
 
     user = get_user(user_id)
@@ -316,7 +324,7 @@ def handle_start(msg):
     # 1) Новый юзер — капча
     if not user:
         add_user(user_id, username, first_name, ref_id)
-        
+
         intro = (
             "Что умеет этот бот?\n\n"
             "⭐ TELEGRAM GIFT STARS\n"
@@ -332,7 +340,7 @@ def handle_start(msg):
         send(user_id,
              f"Приветствую, {first_name}!\n\n"
              "Здесь можно получать звёзды за подписки и приглашённых друзей.\n\n"
-             "Сначала — короткая проверка, что ты человек.\n\n" + captcha_prompt(user_id>
+             "Сначала — короткая проверка, что ты человек.\n\n" + captcha_prompt(user_id),
              reply_markup=captcha_kb())
         return
 
@@ -340,7 +348,7 @@ def handle_start(msg):
     if not user[6]:
         send(user_id,
              f"Приветствую, {first_name}!\n\n"
-             "Сначала — короткая проверка, что ты человек.\n\n" + captcha_prompt(user_id>
+             "Сначала — короткая проверка, что ты человек.\n\n" + captcha_prompt(user_id),
              reply_markup=captcha_kb())
         return
 
@@ -350,7 +358,7 @@ def handle_start(msg):
         update_user(user_id, subscribed=0)
         send(user_id,
              "⚠️ Ты не подписан на каналы!\n\n"
-             "Чтобы пользоваться ботом, подпишись на все каналы ниже и нажми «Проверить >
+             "Чтобы пользоваться ботом, подпишись на все каналы ниже и нажми «Проверить подписку».\n\n"
              "Не подписан на:\n" + "\n".join(f"• {c}" for c in not_subbed),
              reply_markup=sub_kb())
         return
@@ -382,10 +390,10 @@ def handle_callback(cb):
             edit(chat_id, message_id,
                  "Готово, проверка пройдена.\n\n"
                  "Осталось подписаться на каналы.\n\n"
-                 f"Нужно: {len(get_channels())}. Открывай по одному и подписывайся, пото>
+                 f"Нужно: {len(get_channels())}. Открывай по одному и подписывайся, потом нажми проверку.",
                  reply_markup=sub_kb())
         else:
-            answer_cb(cb_id, "Не то. Попробуй ещё раз — осталось попыток: 1.", alert=Tru>
+            answer_cb(cb_id, "Не то. Попробуй ещё раз — осталось попыток: 1.", alert=True)
             edit(chat_id, message_id,
                  captcha_prompt(user_id),
                  reply_markup=captcha_kb2())
@@ -429,17 +437,17 @@ def handle_callback(cb):
             return
 
         if balance < MIN_WITHDRAW:
-            answer_cb(cb_id, f"Минимум для вывода — {MIN_WITHDRAW}⭐. У тебя: {balance}[>
+            answer_cb(cb_id, f"Минимум для вывода — {MIN_WITHDRAW}⭐. У тебя: {balance}⭐", alert=True)
             return
 
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
-        cur.execute("INSERT INTO withdrawals (user_id, amount) VALUES (?, ?)", (user_id,>
+        cur.execute("INSERT INTO withdrawals (user_id, amount) VALUES (?, ?)", (user_id, balance))
         conn.commit()
         conn.close()
         update_user(user_id, balance=0)
         answer_cb(cb_id, "Заявка отправлена админу.", alert=True)
-        send(ADMIN_ID, f"💸 Новая заявка на вывод: {balance}⭐ от {user_id} (друзей: {re>
+        send(ADMIN_ID, f"💸 Новая заявка на вывод: {balance}⭐ от {user_id} (друзей: {refs})")
 
     # --- ОБНОВИТЬ ---
     elif data == "refresh":
@@ -458,34 +466,40 @@ def handle_callback(cb):
 
     # --- АДМИН ---
     elif data == "admin":
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         edit(chat_id, message_id, "Админ-панель:", reply_markup=admin_kb())
 
     elif data == "adm_stats":
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         total, balance, subs = get_stats()
-        text = f"📊 Статистика\n\n👥 Всего: {total}\n✅ Подписались: {subs}\n💰 Баланс: >
+        text = f"📊 Статистика\n\n👥 Всего: {total}\n✅ Подписались: {subs}\n💰 Баланс: {balance}⭐"
         edit(chat_id, message_id, text,
              reply_markup=kb([[{"text": "⬅️ Назад", "callback_data": "admin"}]]))
 
     elif data == "adm_channels":
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         edit(chat_id, message_id, "📢 Список каналов:", reply_markup=channels_kb())
 
     elif data.startswith("adm_del_ch_"):
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         cid = int(data.split("_")[-1])
         delete_channel(cid)
         edit(chat_id, message_id, "📢 Список каналов:", reply_markup=channels_kb())
 
     elif data == "adm_add_ch":
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         ADMIN_STATE[user_id] = "await_channel"
         edit(chat_id, message_id, "Отправь @username канала:",
              reply_markup=kb([[{"text": "⬅️ Отмена", "callback_data": "adm_channels"}]]))
 
     elif data == "adm_withdrawals":
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         rows = get_withdrawals()
         if not rows:
             edit(chat_id, message_id, "Заявок нет.",
@@ -501,7 +515,8 @@ def handle_callback(cb):
             edit(chat_id, message_id, "📥 Заявки на вывод:", reply_markup=kb(kb_rows))
 
     elif data.startswith("adm_done_wd_"):
-        if user_id != ADMIN_ID: return
+        if user_id != ADMIN_ID:
+            return
         wid = int(data.split("_")[-1])
         close_withdrawal(wid)
         answer_cb(cb_id, "Заявка закрыта.", alert=True)
@@ -523,7 +538,8 @@ def handle_callback(cb):
         answer_cb(cb_id)
 
 def handle_message(msg):
-    if "text" not in msg: return
+    if "text" not in msg:
+        return
     user_id = msg["from"]["id"]
     text = msg["text"]
 
